@@ -188,7 +188,9 @@ app.get('/api/likes', (req, res) => {
 // ---------- статика ----------
 app.use(express.static(__dirname, { maxAge: '1h', extensions: ['html'] }));
 
-app.listen(PORT, () => console.log('МатЛэнд запущен: http://localhost:' + PORT));
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`МатЛэнд запущен на 0.0.0.0:${PORT}`);
+});
 
 // Telegram-бот продажи премиума (запускается, если задан BOT_TOKEN)
 if (process.env.BOT_TOKEN) {
