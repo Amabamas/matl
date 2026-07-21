@@ -22,6 +22,7 @@
   </a>
   <nav class="topnav">
     <a href="#/grades" class="nav-link">Классы</a>
+    <a href="#/reports" class="nav-link" id="nav-reports" hidden>🛡 Жалобы</a>
     <button class="btn btn-ghost btn-small" id="btn-profile">🧑‍🎓 Профиль</button>
     <button class="btn btn-ghost btn-small" id="btn-promo">Промокод</button>
   </nav>
@@ -89,10 +90,37 @@
   <div class="crumbs"><a href="#/grades" id="top-back">← Назад</a></div>
   <h2 class="page-title" id="top-title"></h2>
   <p class="page-sub">Топ-20 игроков · 🥇🥈🥉 первые три места получают промокод на премиум</p>
+  <div class="lb-filters" id="top-filters">
+    <select id="f-city"><option value="">Все города</option></select>
+    <input type="text" id="f-school" placeholder="Школа" autocomplete="off">
+    <select id="f-grade"><option value="">Все классы</option></select>
+    <button class="btn btn-ghost btn-small" id="f-reset">Сбросить</button>
+  </div>
   <div id="top-banner"></div>
   <div class="lb-table" id="top-table"></div>
   <p class="g-msg" id="top-msg"></p>
 </main>
+
+<!-- ===== ЖАЛОБЫ (для редактора) ===== -->
+<main id="view-reports" class="view" hidden>
+  <div class="crumbs"><a href="#/grades">← На главную</a></div>
+  <h2 class="page-title">🛡 Жалобы на игроков</h2>
+  <p class="page-sub">Панель редактора — рассмотри жалобы и убери нарушителей из рейтинга</p>
+  <div class="lb-table" id="reports-table"></div>
+</main>
+
+<!-- ===== МОДАЛКА ЖАЛОБЫ ===== -->
+<div class="modal-wrap" id="modal-report" hidden>
+  <div class="modal">
+    <button class="modal-x" data-close>✕</button>
+    <div class="modal-ico">🚩</div>
+    <h3>Пожаловаться на игрока</h3>
+    <p id="report-who"></p>
+    <textarea id="report-text" placeholder="Опиши, что не так (например: нецензурное имя, накрутка результата)…" maxlength="300" rows="4"></textarea>
+    <button class="btn btn-primary btn-wide" id="report-send">Отправить жалобу</button>
+    <p class="promo-msg" id="report-msg"></p>
+  </div>
+</div>
 
 <!-- ===== МОДАЛКА АНКЕТЫ ===== -->
 <div class="modal-wrap" id="modal-profile" hidden>
@@ -154,6 +182,7 @@
   <span>МатЛэнд © 2026 — учись играя</span>
 </footer>
 
+<script src="js/badwords.js"></script>
 <script src="js/problems.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/data.js"></script>

@@ -19,8 +19,9 @@ const TG_BOT_URL = process.env.TG_BOT_URL || '';         // ссылка на б
 const YK_ENABLED = !!(YK_SHOP_ID && YK_SECRET);
 
 // ---------- хранилище ----------
-let db = { players: {}, scores: {}, likes: {}, pro: {}, payments: {} }; // pro[playerId]=1 — куплен премиум
-try { db = JSON.parse(fs.readFileSync(DB_PATH, 'utf8')); } catch (e) {}
+let db = { players: {}, scores: {}, likes: {}, pro: {}, payments: {}, reports: [], banned: {} }; // pro[playerId]=1 — куплен премиум
+try { db = Object.assign(db, JSON.parse(fs.readFileSync(DB_PATH, 'utf8'))); } catch (e) {}
+db.reports = db.reports || []; db.banned = db.banned || {}; db.pro = db.pro || {}; db.payments = db.payments || {};
 let saveTimer = null;
 function save() {
   clearTimeout(saveTimer);
@@ -34,15 +35,8 @@ function save() {
 
 const clean = (s, n) => String(s || '').trim().slice(0, n || 40).replace(/[<>&"']/g, '');
 
-// ---------- фильтр нецензурных слов ----------
-const BAD_ROOTS = ['хуй', 'хуя', 'хуе', 'хуё', 'хуи', 'пизд', 'ебан', 'ебал', 'ебат', 'ебуч', 'ёбан', 'ёбл', 'заеб', 'заёб', 'уёб', 'ублюд', 'бля', 'мудак', 'мудил', 'гандон', 'гондон', 'пидор', 'пидар', 'пидр', 'педик', 'шлюх', 'дроч', 'залуп', 'мразь', 'сука', 'суки', 'сучк', 'говн', 'дерьм', 'жопа', 'жопу', 'срал', 'сран', 'еблан'];
-const LOOKALIKE = { a: 'а', b: 'в', c: 'с', e: 'е', k: 'к', m: 'м', h: 'н', o: 'о', p: 'р', t: 'т', x: 'х', y: 'у', u: 'и', '0': 'о', '3': 'з', '4': 'ч', '6': 'б' };
-function isProfane(s) {
-  const norm = String(s || '').toLowerCase()
-    .split('').map(c => LOOKALIKE[c] || c).join('')
-    .replace(/[^а-яё]/g, '');
-  return BAD_ROOTS.some(r => norm.includes(r));
-}
+// ---------- фильтр нецензурных слов (на базе словаря русского мата) ----------
+const { isProfane } = require('./js/badwords.js');
 
 // ---------- простая защита от спама ----------
 const hits = new Map();
@@ -59,6 +53,10 @@ app.use('/api/', (req, res, next) => {
 
 app.use(express.json({ limit: '8kb' }));
 
+const EDITOR_CODE = process.env.EDITOR_CODE || 'REDAKTOR2000'; // код редактора-модератора
+const gameGradeOf = gid => { const m = /^g(\d+)-/.exec(gid); return m ? +m[1] : 11; };
+const norm = s => String(s || '').trim().toLowerCase();
+
 // ---------- API ----------
 app.post('/api/score', (req, res) => {
   const { player, gameId, score, stars, time } = req.body || {};
@@ -68,13 +66,13 @@ app.post('/api/score', (req, res) => {
   const name = clean(player.name), surname = clean(player.surname);
   if (!name || !surname) return res.status(400).json({ error: 'no name' });
   if ([name, surname, player.city, player.school].some(isProfane)) return res.status(400).json({ error: 'profanity' });
-  db.players[id] = {
-    name, surname,
-    city: clean(player.city, 60),
-    school: clean(player.school, 80),
-    grade: Math.max(1, Math.min(11, Math.round(+player.grade) || 1))
-  };
+  const grade = Math.max(1, Math.min(11, Math.round(+player.grade) || 1));
+  db.players[id] = { name, surname, city: clean(player.city, 60), school: clean(player.school, 80), grade };
+  save();
+  if (db.banned[id]) return res.json({ ok: true, skipped: 'banned' });
   const gid = clean(gameId, 16);
+  // в рейтинг игры пускаем только игроков класса не выше класса самой игры
+  if (grade > gameGradeOf(gid)) return res.json({ ok: true, skipped: 'grade' });
   if (!db.scores[gid]) db.scores[gid] = {};
   const s = Math.max(0, Math.min(100000, Math.round(+score) || 0));
   const st = Math.max(0, Math.min(3, Math.round(+stars) || 0));
@@ -82,30 +80,84 @@ app.post('/api/score', (req, res) => {
   const prev = db.scores[gid][id];
   if (!prev || s > prev.score || (s === prev.score && st > prev.stars)) {
     db.scores[gid][id] = { score: s, stars: st, time: tm, at: Date.now() };
+    save();
   }
-  save();
   res.json({ ok: true });
 });
 
 app.get('/api/leaderboard/:gameId', (req, res) => {
   const gid = clean(req.params.gameId, 16);
   const g = db.scores[gid] || {};
-  const rows = Object.entries(g)
+  const fCity = norm(req.query.city), fSchool = norm(req.query.school), fGrade = req.query.grade ? +req.query.grade : 0;
+  let rows = Object.entries(g)
     .map(([pid, v]) => Object.assign({ pid }, v, db.players[pid] || {}))
-    .filter(r => r.name)
+    .filter(r => r.name && !db.banned[r.pid])
     .sort((a, b) => b.score - a.score || b.stars - a.stars || a.at - b.at);
   const me = clean(req.query.player || '', 64);
+  const isEditor = norm(req.query.code) === norm(EDITOR_CODE);
+  // фильтры (позиция «me» считается по общему списку, а не по фильтру)
   const myIdx = rows.findIndex(r => r.pid === me);
+  let filtered = rows;
+  if (fCity) filtered = filtered.filter(r => norm(r.city) === fCity);
+  if (fSchool) filtered = filtered.filter(r => norm(r.school).indexOf(fSchool) !== -1);
+  if (fGrade) filtered = filtered.filter(r => r.grade === fGrade);
+  // варианты для выпадающих фильтров
+  const cities = [...new Set(rows.map(r => r.city).filter(Boolean))].sort().slice(0, 100);
   res.json({
-    total: rows.length,
-    top: rows.slice(0, 20).map((r, i) => ({
-      rank: i + 1, name: r.name, surname: r.surname, city: r.city,
+    total: filtered.length,
+    editor: isEditor,
+    cities,
+    top: filtered.slice(0, 20).map((r, i) => ({
+      rank: i + 1, pid: r.pid, name: r.name, surname: r.surname, city: r.city,
       school: r.school, grade: r.grade, score: r.score, stars: r.stars,
       time: r.time || 0, me: r.pid === me
     })),
     me: myIdx >= 0 ? { rank: myIdx + 1, score: rows[myIdx].score, stars: rows[myIdx].stars, time: rows[myIdx].time || 0 } : null,
     reward: myIdx > -1 && myIdx < 3 ? REWARD_CODE : null
   });
+});
+
+// ---------- жалобы и модерация ----------
+app.post('/api/report', (req, res) => {
+  const { reporter, gameId, target, text } = req.body || {};
+  const rid = clean(reporter && reporter.id, 64);
+  const tpid = clean(target, 64);
+  if (!/^[\w-]{8,64}$/.test(tpid)) return res.status(400).json({ error: 'bad target' });
+  const reason = clean(text, 300);
+  db.reports.unshift({
+    id: 'r' + Date.now() + Math.floor(Math.random() * 1000),
+    reporter: rid, target: tpid, gameId: clean(gameId, 16),
+    targetName: (db.players[tpid] ? db.players[tpid].name + ' ' + db.players[tpid].surname : '—'),
+    text: reason, at: Date.now(), done: false
+  });
+  db.reports = db.reports.slice(0, 500);
+  save();
+  res.json({ ok: true });
+});
+
+app.get('/api/reports', (req, res) => {
+  if (norm(req.query.code) !== norm(EDITOR_CODE)) return res.status(403).json({ error: 'forbidden' });
+  res.json({
+    reports: db.reports.slice(0, 100).map(r => Object.assign({}, r,
+      { player: db.players[r.target] || null, banned: !!db.banned[r.target] }))
+  });
+});
+
+app.post('/api/moderate', (req, res) => {
+  const { code, action, target } = req.body || {};
+  if (norm(code) !== norm(EDITOR_CODE)) return res.status(403).json({ error: 'forbidden' });
+  const tpid = clean(target, 64);
+  if (action === 'ban') {
+    db.banned[tpid] = 1;
+    for (const gid of Object.keys(db.scores)) delete db.scores[gid][tpid]; // убрать из всех рейтингов
+    db.reports.forEach(r => { if (r.target === tpid) r.done = true; });
+  } else if (action === 'unban') {
+    delete db.banned[tpid];
+  } else if (action === 'dismiss') {
+    db.reports.forEach(r => { if (r.target === tpid) r.done = true; });
+  }
+  save();
+  res.json({ ok: true });
 });
 
 // ---------- оплата ----------
@@ -188,9 +240,7 @@ app.get('/api/likes', (req, res) => {
 // ---------- статика ----------
 app.use(express.static(__dirname, { maxAge: '1h', extensions: ['html'] }));
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`МатЛэнд запущен на 0.0.0.0:${PORT}`);
-});
+app.listen(PORT, () => console.log('МатЛэнд запущен: http://localhost:' + PORT));
 
 // Telegram-бот продажи премиума (запускается, если задан BOT_TOKEN)
 if (process.env.BOT_TOKEN) {

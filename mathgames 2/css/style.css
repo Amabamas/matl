@@ -95,8 +95,14 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .game-meta{display:flex;align-items:center;justify-content:space-between;font-size:12.5px;color:var(--muted)}
 .game-mech{background:var(--bg2);border:1px solid var(--line);border-radius:99px;padding:3px 10px}
 .game-stars{color:var(--gold)}
-.badge-premium{position:absolute;top:14px;right:14px;background:var(--grad2);color:#3a2200;font-weight:900;
-  font-size:11px;padding:4px 10px;border-radius:99px;letter-spacing:.4px}
+.badge-premium{position:absolute;top:14px;left:14px;background:var(--grad2);color:#3a2200;font-weight:900;
+  font-size:11px;padding:4px 10px;border-radius:99px;letter-spacing:.4px;z-index:2}
+/* крупная кнопка рейтинга в правом верхнем углу карточки */
+.game-card .lb-btn{position:absolute;top:12px;right:12px;z-index:3;width:46px;height:46px;border-radius:14px;
+  display:grid;place-items:center;font-size:24px;background:var(--bg2);border:1px solid var(--line);
+  box-shadow:0 4px 14px rgba(0,0,0,.25);transition:transform .15s,border-color .2s,background .2s}
+.game-card .lb-btn:hover{transform:scale(1.1) rotate(-6deg);border-color:var(--gold);background:rgba(255,194,71,.14)}
+.game-card .lb-btn:active{transform:scale(.94)}
 .game-card.locked{opacity:.88}
 .game-card.locked .game-ico{filter:grayscale(.4)}
 
@@ -222,25 +228,35 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 /* летящие пояснения ошибок — колонка на свободном поле слева от игры */
 .err-tray{position:fixed;left:16px;top:50%;transform:translateY(-50%);z-index:40;
   display:flex;flex-direction:column;gap:7px;width:210px;pointer-events:none}
-.err-tray::before{content:"Разбор ошибок";display:block;color:var(--muted);font-size:11px;
+.err-tray::before{content:"Как было правильно";display:block;color:var(--muted);font-size:11px;
   font-weight:700;letter-spacing:.4px;text-transform:uppercase;opacity:.7;margin-bottom:2px}
-.err-chip{background:rgba(255,92,108,.12);border:1px solid rgba(255,92,108,.5);color:#ffd9dd;border-radius:11px;
+.err-chip{background:rgba(61,220,132,.1);border:1px solid rgba(61,220,132,.45);color:#d7ffe8;border-radius:11px;
   padding:7px 12px;font-size:13px;line-height:1.35;pointer-events:none;
   box-shadow:0 4px 16px rgba(0,0,0,.3);
   transition:transform .6s cubic-bezier(.4,.1,.3,1),opacity .5s;will-change:transform}
-.err-chip::before{content:"✗ ";color:var(--bad);font-weight:900}
-.err-chip.settled{opacity:.92}
+.err-chip::before{content:"✓ ";color:var(--ok);font-weight:900}
+.err-chip.settled{opacity:.95}
 /* на узких экранах свободного поля нет — прячем летящую колонку, ошибки остаются в итогах */
 @media(max-width:1180px){ .err-tray{display:none} }
 
 /* разбор ошибок в итогах */
 .result-mistakes{max-height:150px;overflow:auto;text-align:left;margin:0 0 14px;display:flex;flex-direction:column;gap:5px}
-.result-mistakes .rm-item{background:rgba(255,92,108,.1);border:1px solid rgba(255,92,108,.4);border-radius:10px;
-  padding:6px 10px;font-size:13px;color:#ffd9dd}
+.result-mistakes .rm-item{background:rgba(61,220,132,.1);border:1px solid rgba(61,220,132,.4);border-radius:10px;
+  padding:6px 10px;font-size:13px;color:#d7ffe8}
+.result-mistakes .rm-item::before{content:"✓ ";color:var(--ok);font-weight:900}
 .result-mistakes .rm-title{color:var(--muted);font-size:12.5px;margin-bottom:2px}
 
 /* оплата */
 .pay-options{display:flex;flex-direction:column;gap:10px;margin-bottom:6px}
+
+/* модалка жалобы */
+#report-text{width:100%;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;
+  color:var(--text);font-family:inherit;font-size:14px;outline:none;resize:vertical;margin-bottom:14px}
+#report-text:focus{border-color:var(--p1)}
+.rep-card{text-align:left}
+.rep-card .rep-reason{color:var(--text);font-size:14px;margin-top:4px}
+.rep-card.done{opacity:.5}
+.rep-actions{display:flex;gap:8px;margin-top:6px}
 
 /* лайки */
 .meta-right{display:inline-flex;align-items:center;gap:6px}
@@ -257,10 +273,25 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .profile-form input:focus,.profile-form select:focus{border-color:var(--p1)}
 .profile-form select{appearance:none;-webkit-appearance:none}
 
+/* фильтры рейтинга */
+.lb-filters{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;max-width:720px;margin:0 auto 18px}
+.lb-filters select,.lb-filters input{background:var(--bg2);border:1px solid var(--line);border-radius:12px;
+  padding:10px 14px;color:var(--text);font-family:inherit;font-size:14px;outline:none}
+.lb-filters select:focus,.lb-filters input:focus{border-color:var(--p1)}
+.lb-filters input{width:150px}
+
 /* таблица рейтинга */
 .lb-table{display:flex;flex-direction:column;gap:8px;max-width:720px;margin:0 auto}
-.lb-row{display:grid;grid-template-columns:44px 1fr auto;gap:12px;align-items:center;
-  background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 16px}
+.lb-row{display:grid;grid-template-columns:44px 1fr auto auto;gap:10px;align-items:center;
+  background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 16px;position:relative}
+.lb-menu-btn{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-size:18px;
+  color:var(--muted);background:transparent;border:1px solid transparent;transition:background .2s,color .2s}
+.lb-menu-btn:hover{background:var(--bg2);color:var(--text)}
+.lb-pop{position:absolute;right:12px;top:48px;z-index:20;background:var(--card2);border:1px solid var(--line);
+  border-radius:12px;box-shadow:var(--sh);overflow:hidden;min-width:180px}
+.lb-pop button{display:block;width:100%;text-align:left;padding:11px 14px;font-size:14px;transition:background .15s}
+.lb-pop button:hover{background:var(--bg2)}
+.lb-pop button.danger{color:var(--bad)}
 .lb-row.medal-1{border-color:var(--gold);background:linear-gradient(90deg,rgba(255,194,71,.14),var(--card))}
 .lb-row.medal-2{border-color:#c0c8d8;background:linear-gradient(90deg,rgba(192,200,216,.12),var(--card))}
 .lb-row.medal-3{border-color:#d8925c;background:linear-gradient(90deg,rgba(216,146,92,.12),var(--card))}

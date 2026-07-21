@@ -797,11 +797,12 @@
     }
   });
 
+  const FISH_COLORS = ['#ff6b3d', '#ffc247', '#3ddc84', '#00d4ff', '#7c5cff', '#ff5ca8', '#ff4757', '#2ed573', '#ffa502', '#1e90ff'];
   M.fish = tapWorld({
     hud: '🎣', winTitle: 'Отличный улов!',
-    labelColor: '#eaf6ff', labelDy: 30,
-    spawn: (o, lane, i) => { const dir = i % 2 ? 1 : -1; return { o, lane, dir, x: dir > 0 ? -0.04 - Math.random() * 0.08 : 1.04 + Math.random() * 0.08, y: 0.16 + lane * 0.68, ph: Math.random() * 6 }; },
-    reset: ob => { ob.x = ob.dir > 0 ? -0.06 : 1.06; },
+    labelColor: '#ffffff', labelDy: 34,
+    spawn: (o, lane, i) => { const dir = i % 2 ? 1 : -1; return { o, lane, dir, x: dir > 0 ? -0.04 - Math.random() * 0.08 : 1.04 + Math.random() * 0.08, y: 0.16 + lane * 0.68, ph: Math.random() * 6, col: FISH_COLORS[(i + Math.floor(Math.random() * 3)) % FISH_COLORS.length] }; },
+    reset: ob => { ob.x = ob.dir > 0 ? -0.06 : 1.06; ob.col = FISH_COLORS[Math.floor(Math.random() * FISH_COLORS.length)]; },
     move: (ob, v, dt) => { ob.x += v * ob.dir; ob.y += Math.sin(ob.x * 10 + ob.ph) * dt * 0.05; },
     gone: ob => ob.x < -0.2 || ob.x > 1.2,
     bg: (ctx, W, H) => {
@@ -813,8 +814,18 @@
     drawObj: (ctx, ob, x, y) => {
       ctx.save(); ctx.translate(x, y);
       if (ob.dir < 0) ctx.scale(-1, 1);
-      ctx.font = '36px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('🐠', 0, 0);
+      const R = 22;
+      // тело рыбки — сплошной яркий цвет
+      ctx.fillStyle = ob.col;
+      ctx.beginPath(); ctx.ellipse(0, 0, R, R * 0.66, 0, 0, Math.PI * 2); ctx.fill();
+      // хвост
+      ctx.beginPath(); ctx.moveTo(-R * 0.8, 0); ctx.lineTo(-R * 1.5, -R * 0.55); ctx.lineTo(-R * 1.5, R * 0.55); ctx.closePath(); ctx.fill();
+      // плавник
+      ctx.fillStyle = 'rgba(255,255,255,.35)';
+      ctx.beginPath(); ctx.moveTo(2, -R * 0.55); ctx.lineTo(-6, -R * 1.05); ctx.lineTo(10, -R * 0.5); ctx.closePath(); ctx.fill();
+      // глаз
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(R * 0.5, -R * 0.12, 4.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#12121e'; ctx.beginPath(); ctx.arc(R * 0.6, -R * 0.12, 2.2, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
   });

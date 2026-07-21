@@ -26,15 +26,8 @@
   }
   const getProfile = () => store.get('profile', null);
 
-  // ---------- фильтр нецензурных слов ----------
-  const BAD_ROOTS = ['хуй', 'хуя', 'хуе', 'хуё', 'хуи', 'пизд', 'ебан', 'ебал', 'ебат', 'ебуч', 'ёбан', 'ёбл', 'заеб', 'заёб', 'уёб', 'ублюд', 'бля', 'мудак', 'мудил', 'гандон', 'гондон', 'пидор', 'пидар', 'пидр', 'педик', 'шлюх', 'дроч', 'залуп', 'мразь', 'сука', 'суки', 'сучк', 'говн', 'дерьм', 'жопа', 'жопу', 'срал', 'сран', 'еблан'];
-  const LOOKALIKE = { a: 'а', b: 'в', c: 'с', e: 'е', k: 'к', m: 'м', h: 'н', o: 'о', p: 'р', t: 'т', x: 'х', y: 'у', u: 'и', '0': 'о', '3': 'з', '4': 'ч', '6': 'б' };
-  function isProfane(s) {
-    const norm = String(s || '').toLowerCase()
-      .split('').map(c => LOOKALIKE[c] || c).join('')
-      .replace(/[^а-яё]/g, '');
-    return BAD_ROOTS.some(r => norm.includes(r));
-  }
+  // ---------- фильтр нецензурных слов (js/badwords.js на базе словаря русского мата) ----------
+  const isProfane = s => (window.BadWords ? window.BadWords.isProfane(s) : false);
 
   // ---------- лайки ----------
   let likesData = { counts: {}, mine: [] };
@@ -71,7 +64,7 @@
   }
 
   // ---------- виды ----------
-  const views = ['home', 'grades', 'grade', 'play', 'top'];
+  const views = ['home', 'grades', 'grade', 'play', 'top', 'reports'];
   function show(name) {
     views.forEach(v => { const e = $('#view-' + v); if (e) e.hidden = v !== name; });
     window.scrollTo(0, 0);
@@ -113,6 +106,7 @@
       b.style.setProperty('--ac-bg', g.color + '26');
       const stars = getStars(game.id);
       b.innerHTML = `
+        <button class="lb-btn" title="Рейтинг игры">🏆</button>
         ${game.premium ? '<span class="badge-premium">👑 PREMIUM</span>' : ''}
         <div class="game-ico">${locked ? '🔒' : game.ico}</div>
         <div class="game-name">${game.name}</div>
@@ -121,7 +115,6 @@
           <span class="game-mech">${window.MECH_NAMES[game.mech] || game.mech}</span>
           <span class="meta-right">
             ${API_ON ? `<button class="like-btn ${likesData.mine.includes(game.id) ? 'liked' : ''}" title="Нравится">${likeLabel(game.id)}</button>` : ''}
-            <button class="game-mech lb-btn" title="Рейтинг игры">🏆</button>
             <span class="game-stars">${'★'.repeat(stars)}${'☆'.repeat(3 - stars)}</span>
           </span>
         </div>`;
@@ -189,8 +182,8 @@
       ` · Время: ${fmtTime(t)} · Очки: ${score}` + (bonus ? ` (бонус за скорость +${bonus})` : '');
     const rm = $('#result-mistakes');
     if (res.mistakes && res.mistakes.length) {
-      rm.innerHTML = '<div class="rm-title">Разбор ошибок:</div>' +
-        res.mistakes.map(m => `<div class="rm-item">✗ ${esc(m)}</div>`).join('');
+      rm.innerHTML = '<div class="rm-title">Разбор ошибок — как было правильно:</div>' +
+        res.mistakes.map(m => `<div class="rm-item">${esc(m)}</div>`).join('');
     } else {
       rm.innerHTML = res.total ? '<div class="rm-title">Без единой ошибки — красота! ✨</div>' : '';
     }
@@ -218,9 +211,22 @@
 
   const esc = s => String(s || '').replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
 
+  const isEditor = () => store.get('editor', false);
+  const editorCode = () => store.get('editorCode', '');
+  let topFilters = { city: '', school: '', grade: '' };
+  let curTopGame = null;
+
+  // заполнить select классов один раз
+  (function () {
+    const fg = $('#f-grade');
+    fg.innerHTML = '<option value="">Все классы</option>' +
+      Array.from({ length: 11 }, (_, i) => `<option value="${i + 1}">${i + 1} класс</option>`).join('');
+  })();
+
   async function renderTop(gameId) {
     const found = findGame(gameId);
     if (!found) { location.hash = '#/grades'; return; }
+    curTopGame = gameId;
     $('#top-title').textContent = found.game.ico + ' ' + found.game.name;
     $('#top-back').href = '#/grade/' + found.g.n;
     const table = $('#top-table'), banner = $('#top-banner'), msg = $('#top-msg');
@@ -228,31 +234,41 @@
     table.innerHTML = '<div class="lb-empty"><div class="g-bigico">⏳</div>Загружаем рейтинг…</div>';
 
     if (!API_ON) {
+      $('#top-filters').hidden = true;
       table.innerHTML = '<div class="lb-empty"><div class="g-bigico">📡</div>Рейтинг работает, когда сайт открыт с сервера (Railway).<br>Локально с диска соревнование недоступно.</div>';
       return;
     }
+    $('#top-filters').hidden = false;
     if (!getProfile()) {
       table.innerHTML = '<div class="lb-empty"><div class="g-bigico">🧑‍🎓</div>Заполни анкету игрока, чтобы попасть в рейтинг!</div>';
       openModal('#modal-profile');
       return;
     }
-    // дошлём лучший результат (если играли до заполнения анкеты)
     await submitScore(gameId);
     let data;
     try {
-      const r = await fetch('/api/leaderboard/' + encodeURIComponent(gameId) + '?player=' + encodeURIComponent(playerId()));
+      const q = new URLSearchParams({ player: playerId(), city: topFilters.city, school: topFilters.school, grade: topFilters.grade, code: editorCode() });
+      const r = await fetch('/api/leaderboard/' + encodeURIComponent(gameId) + '?' + q.toString());
       data = await r.json();
     } catch (e) {
       table.innerHTML = '<div class="lb-empty"><div class="g-bigico">😴</div>Не получилось загрузить рейтинг. Проверь интернет и обнови страницу.</div>';
       return;
     }
+    // обновляем список городов в фильтре
+    const fCity = $('#f-city');
+    if (data.cities && fCity.options.length <= 1 + (data.cities.length)) {
+      const cur = fCity.value;
+      fCity.innerHTML = '<option value="">Все города</option>' + (data.cities || []).map(c => `<option${c === cur ? ' selected' : ''}>${esc(c)}</option>`).join('');
+    }
     if (!data.top || !data.top.length) {
-      table.innerHTML = '<div class="lb-empty"><div class="g-bigico">🌱</div>Пока никто не играл. Стань первым в топе!</div>';
+      const anyFilter = topFilters.city || topFilters.school || topFilters.grade;
+      table.innerHTML = `<div class="lb-empty"><div class="g-bigico">${anyFilter ? '🔍' : '🌱'}</div>${anyFilter ? 'По этому фильтру пока никого нет.' : 'Пока никто не играл. Стань первым в топе!'}</div>`;
       return;
     }
     if (data.reward) {
       banner.innerHTML = `<div class="lb-banner">🏅 <b>Ты в тройке лидеров!</b> Твой призовой промокод на премиум: <code>${esc(data.reward)}</code></div>`;
     }
+    const editor = data.editor;
     const medals = ['🥇', '🥈', '🥉'];
     table.innerHTML = data.top.map(r => `
       <div class="lb-row ${r.rank <= 3 ? 'medal-' + r.rank : ''} ${r.me ? 'me' : ''}">
@@ -260,18 +276,103 @@
         <div class="lb-who"><b>${esc(r.name)} ${esc(r.surname)}${r.me ? ' (ты)' : ''}</b>
           <span>${esc(r.city)} · шк. ${esc(r.school)} · ${r.grade} класс</span></div>
         <div class="lb-pts">${r.score}<small>${'★'.repeat(r.stars || 0)}${r.time ? ' · ' + fmtTime(r.time) : ''}</small></div>
+        ${r.me ? '<div></div>' : `<button class="lb-menu-btn" data-pid="${esc(r.pid)}" data-name="${esc(r.name + ' ' + r.surname)}" title="Ещё">⋯</button>`}
       </div>`).join('');
+    // меню-троеточие: жалоба (+ удаление для редактора)
+    table.querySelectorAll('.lb-menu-btn').forEach(btn => {
+      btn.onclick = e => {
+        e.stopPropagation();
+        closePops();
+        const pop = document.createElement('div');
+        pop.className = 'lb-pop';
+        pop.innerHTML = `<button data-act="report">🚩 Пожаловаться</button>` +
+          (editor ? `<button class="danger" data-act="ban">🗑 Убрать из рейтинга</button>` : '');
+        btn.parentElement.appendChild(pop);
+        pop.querySelector('[data-act="report"]').onclick = ev => { ev.stopPropagation(); closePops(); openReport(btn.dataset.pid, btn.dataset.name); };
+        const banBtn = pop.querySelector('[data-act="ban"]');
+        if (banBtn) banBtn.onclick = async ev => {
+          ev.stopPropagation(); closePops();
+          if (!confirm('Убрать «' + btn.dataset.name + '» из рейтинга?')) return;
+          await moderate('ban', btn.dataset.pid);
+          renderTop(curTopGame);
+        };
+      };
+    });
     if (data.me && data.me.rank > 20) {
       table.innerHTML += `<div class="lb-sep">•••</div>
         <div class="lb-row me">
           <div class="lb-rank">${data.me.rank}</div>
           <div class="lb-who"><b>Это ты!</b><span>Всего участников: ${data.total}</span></div>
           <div class="lb-pts">${data.me.score}<small>${'★'.repeat(data.me.stars || 0)}${data.me.time ? ' · ' + fmtTime(data.me.time) : ''}</small></div>
+          <div></div>
         </div>`;
       msg.textContent = 'До топ-20 осталось совсем немного — сыграй ещё раз!';
     } else if (data.me) {
       msg.textContent = data.me.rank <= 3 ? 'Ты на пьедестале! Удержи позицию 💪' : 'Ты в топ-20! Улучши результат и поднимись выше.';
     }
+  }
+  function closePops() { document.querySelectorAll('.lb-pop').forEach(p => p.remove()); }
+  document.addEventListener('click', closePops);
+
+  // фильтры рейтинга
+  $('#f-city').onchange = () => { topFilters.city = $('#f-city').value; if (curTopGame) renderTop(curTopGame); };
+  $('#f-grade').onchange = () => { topFilters.grade = $('#f-grade').value; if (curTopGame) renderTop(curTopGame); };
+  let schoolT = null;
+  $('#f-school').oninput = () => { clearTimeout(schoolT); schoolT = setTimeout(() => { topFilters.school = $('#f-school').value.trim(); if (curTopGame) renderTop(curTopGame); }, 400); };
+  $('#f-reset').onclick = () => { topFilters = { city: '', school: '', grade: '' }; $('#f-city').value = ''; $('#f-school').value = ''; $('#f-grade').value = ''; if (curTopGame) renderTop(curTopGame); };
+
+  // ---------- жалобы ----------
+  let reportTarget = null;
+  function openReport(pid, name) {
+    reportTarget = pid;
+    $('#report-who').textContent = 'Игрок: ' + name;
+    $('#report-text').value = '';
+    $('#report-msg').textContent = '';
+    openModal('#modal-report');
+  }
+  $('#report-send').onclick = async () => {
+    const text = $('#report-text').value.trim();
+    if (!text) { $('#report-msg').textContent = 'Опиши причину жалобы'; $('#report-msg').className = 'promo-msg bad'; return; }
+    try {
+      await fetch('/api/report', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reporter: { id: playerId() }, gameId: curTopGame, target: reportTarget, text })
+      });
+      $('#report-msg').textContent = 'Спасибо! Жалоба отправлена редактору.';
+      $('#report-msg').className = 'promo-msg ok';
+      setTimeout(closeModals, 900);
+    } catch (e) { $('#report-msg').textContent = 'Ошибка сети'; $('#report-msg').className = 'promo-msg bad'; }
+  };
+  async function moderate(action, target) {
+    try { await fetch('/api/moderate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: editorCode(), action, target }) }); } catch (e) {}
+  }
+
+  // ---------- панель редактора ----------
+  async function renderReports() {
+    const table = $('#reports-table');
+    table.innerHTML = '<div class="lb-empty"><div class="g-bigico">⏳</div>Загрузка…</div>';
+    let data;
+    try { data = await (await fetch('/api/reports?code=' + encodeURIComponent(editorCode()))).json(); }
+    catch (e) { table.innerHTML = '<div class="lb-empty">Ошибка</div>'; return; }
+    if (!data.reports || !data.reports.length) {
+      table.innerHTML = '<div class="lb-empty"><div class="g-bigico">✅</div>Жалоб нет — всё спокойно!</div>';
+      return;
+    }
+    table.innerHTML = data.reports.map(r => `
+      <div class="lb-row rep-card ${r.done ? 'done' : ''}">
+        <div class="lb-who" style="grid-column:1 / -1">
+          <b>🚩 ${esc(r.targetName)}${r.banned ? ' — 🗑 удалён' : ''}</b>
+          <span>${r.player ? esc(r.player.city || '') + ' · шк. ' + esc(r.player.school || '') + ' · ' + (r.player.grade || '?') + ' класс' : 'профиль недоступен'} · игра ${esc(r.gameId || '—')}</span>
+          <div class="rep-reason">${esc(r.text)}</div>
+          <div class="rep-actions">
+            ${r.banned ? '' : `<button class="btn btn-ghost btn-small" data-act="ban" data-pid="${esc(r.target)}">🗑 Убрать из рейтинга</button>`}
+            ${r.done ? '' : `<button class="btn btn-ghost btn-small" data-act="dismiss" data-pid="${esc(r.target)}">Отклонить жалобу</button>`}
+          </div>
+        </div>
+      </div>`).join('');
+    table.querySelectorAll('[data-act]').forEach(b => {
+      b.onclick = async () => { await moderate(b.dataset.act, b.dataset.pid); renderReports(); };
+    });
   }
 
   // ---------- анкета ----------
@@ -361,10 +462,17 @@
       $('#promo-msg').className = 'promo-msg';
     }
   };
+  const EDITOR_PROMO = 'REDAKTOR2000';
   const applyPromo = () => {
     const v = ($('#promo-input').value || '').trim().toUpperCase();
     const msg = $('#promo-msg');
-    if (PROMO_CODES.includes(v)) {
+    if (v === EDITOR_PROMO) {
+      store.set('editor', true); store.set('editorCode', v); store.set('pro', true);
+      $('#nav-reports').hidden = false;
+      msg.textContent = 'Режим редактора включён 🛡 Вкладка «Жалобы» доступна в шапке.';
+      msg.className = 'promo-msg ok';
+      setTimeout(() => { closeModals(); location.hash = '#/reports'; }, 1000);
+    } else if (PROMO_CODES.includes(v)) {
       store.set('pro', true);
       msg.textContent = 'Промокод принят! Все 33 премиум-игры открыты 🎉';
       msg.className = 'promo-msg ok';
@@ -396,9 +504,11 @@
     }
     else if ((m = h.match(/^#\/play\/([\w-]+)$/))) { show('play'); startPlay(m[1]); }
     else if ((m = h.match(/^#\/top\/([\w-]+)$/))) { show('top'); renderTop(m[1]); }
+    else if (h === '#/reports') { if (isEditor()) { show('reports'); renderReports(); } else { location.hash = '#/grades'; } }
     else if (h === '#/grades') { renderGrades(); show('grades'); }
     else { show('home'); }
   }
+  if (isEditor()) $('#nav-reports').hidden = false;
   window.addEventListener('hashchange', route);
   route();
   loadPayConfig();
